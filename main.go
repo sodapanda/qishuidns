@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -13,6 +14,50 @@ import (
 
 var ranger cidranger.Ranger
 var gfwListTrie *Trie
+var records []Record
+
+// Record Record
+type Record struct {
+	Name   string `json:"name"`
+	IP     string `json:"ip"`
+	Server string `json:"server"`
+}
+
+func readConf() {
+	b, err := ioutil.ReadFile("config.json")
+	if err != nil {
+		fmt.Println("读取json文件出错:", err)
+		return
+	}
+	// 解析json数据
+	err = json.Unmarshal(b, &records)
+	if err != nil {
+		fmt.Println("解析json数据出错:", err)
+		return
+	}
+
+	// 输出结果
+	for _, r := range records {
+		fmt.Printf("name: %s, ip: %s, server: %s\n", r.Name, r.IP, r.Server)
+	}
+}
+
+func isSubdomain(inputDomain string, givenDomain string) bool {
+	if inputDomain == givenDomain {
+		return true
+	}
+	givenDomainParts := strings.Split(givenDomain, ".")
+	inputDomainParts := strings.Split(inputDomain, ".")
+	if len(inputDomainParts) < len(givenDomainParts)+1 {
+		return false
+	}
+	for i := range givenDomainParts {
+		if givenDomainParts[len(givenDomainParts)-1-i] != inputDomainParts[len(inputDomainParts)-1-i] {
+			return false
+		}
+	}
+	return true
+}
 
 // TrieNode TrieNode
 type TrieNode struct {
@@ -119,66 +164,92 @@ func handleRequest(w dns.ResponseWriter, req *dns.Msg) {
 	// 创建响应消息
 	res := &dns.Msg{}
 	res.SetReply(req)
+	isConfigBind := false
+	forwardServer := "8.8.8.8"
 
-	// 判断是否含有A记录的请求
-	foundSupportedType := false
-	isGFW := false
-	isNotChina := false
-	for _, q := range req.Question {
-		// 判断查询是否为A记录
-		if q.Qtype == dns.TypeA || q.Qtype == dns.TypeAAAA || q.Qtype == dns.TypeMX || q.Qtype == dns.TypeCNAME || q.Qtype == dns.TypeHTTPS {
-			foundSupportedType = true
-			isGFW = gfwListTrie.IsSubdomain(reverseDomain(strings.TrimRight(q.Name, ".")))
-			break
+	// 判断是不是配置文件里的
+	if req.Question[0].Qtype == dns.TypeA {
+		queryName := strings.TrimRight(req.Question[0].Name, ".")
+		for _, record := range records {
+			// 写配置的时候cdn.openai.com必须在openai.com前边
+			if isSubdomain(queryName, record.Name) {
+				if record.IP != "" {
+					isConfigBind = true
+
+					rr, err := dns.NewRR(req.Question[0].Name + " IN A " + record.IP)
+					if err != nil {
+						panic(err)
+					}
+					res.Answer = append(res.Answer, rr)
+					fmt.Printf("config: %s %s\n", queryName, record.IP)
+				} else if record.Server != "" {
+					forwardServer = record.Server
+					fmt.Printf("Config server %s %s\n", queryName, forwardServer)
+				}
+				break
+			}
 		}
-
 	}
 
-	if foundSupportedType {
-		// 向8.8.8.8发起请求
-		if isGFW {
-			c := new(dns.Client)
-			var err error
-			res, _, err = c.Exchange(req, "8.8.8.8:53")
-			if err != nil {
-				log.Printf("Error forwarding request to 8.8.8.8: %v", err)
-				res = createErrorReply(req)
-			}
-		} else {
-			c := new(dns.Client)
-			var err error
-			res, _, err = c.Exchange(req, "119.29.29.29:53")
-			if err != nil {
-				log.Printf("Error forwarding request to 119.29.29.29: %v", err)
-				res = createErrorReply(req)
+	if !isConfigBind {
+		// 判断是否含有A记录的请求
+		foundSupportedType := false
+		isGFW := false
+		isNotChina := false
+		for _, q := range req.Question {
+			// 判断查询是否为支持的
+			if q.Qtype == dns.TypeA || q.Qtype == dns.TypeAAAA || q.Qtype == dns.TypeMX || q.Qtype == dns.TypeCNAME || q.Qtype == dns.TypeHTTPS {
+				foundSupportedType = true
+				isGFW = gfwListTrie.IsSubdomain(reverseDomain(strings.TrimRight(q.Name, ".")))
+				break
 			}
 
-			for _, r := range res.Answer {
-				if a, ok := r.(*dns.A); ok {
-					// fmt.Printf("%s A记录 IP地址: %s\n", " ", a.A)
-					if !checkCIDRRange(a.A) {
-						isNotChina = true
+		}
+
+		if foundSupportedType {
+			if isGFW {
+				c := new(dns.Client)
+				var err error
+				res, _, err = c.Exchange(req, forwardServer+":53")
+				if err != nil {
+					log.Printf("Error forwarding request to %s: %v", forwardServer, err)
+					res = createErrorReply(req)
+				}
+			} else {
+				c := new(dns.Client)
+				var err error
+				res, _, err = c.Exchange(req, "223.5.5.5:53")
+				if err != nil {
+					log.Printf("Error forwarding request to 223.5.5.5: %v", err)
+					res = createErrorReply(req)
+				}
+
+				for _, r := range res.Answer {
+					if a, ok := r.(*dns.A); ok {
+						// fmt.Printf("%s A记录 IP地址: %s\n", " ", a.A)
+						if !checkCIDRRange(a.A) {
+							isNotChina = true
+						}
+					}
+				}
+
+				if isNotChina {
+					c := new(dns.Client)
+					var err error
+					res, _, err = c.Exchange(req, forwardServer+":53")
+					if err != nil {
+						log.Printf("Error forwarding request to %s: %v", forwardServer, err)
+						res = createErrorReply(req)
 					}
 				}
 			}
-
-			if isNotChina {
-				// log.Printf("不是中国ip重新用8.8.8.8请求")
-				c := new(dns.Client)
-				var err error
-				res, _, err = c.Exchange(req, "8.8.8.8:53")
-				if err != nil {
-					log.Printf("Error forwarding request to 8.8.8.8: %v", err)
-					res = createErrorReply(req)
-				}
-			}
+		} else {
+			res = createErrorReply(req)
 		}
-	} else {
-		res = createErrorReply(req)
-	}
 
-	for _, question := range req.Question {
-		fmt.Printf("Support=%t,Type=%s,is GFW=%t,isNotChina=%t %s\n", foundSupportedType, dns.TypeToString[question.Qtype], isGFW, isNotChina, question.Name)
+		for _, question := range req.Question {
+			fmt.Printf("Support=%t,Type=%s,is GFW=%t,isNotChina=%t %s\n", foundSupportedType, dns.TypeToString[question.Qtype], isGFW, isNotChina, question.Name)
+		}
 	}
 
 	// 将响应发送回客户端
@@ -196,6 +267,7 @@ func createErrorReply(req *dns.Msg) *dns.Msg {
 }
 
 func main() {
+	readConf()
 	loadGFWList()
 	loadNetRange()
 

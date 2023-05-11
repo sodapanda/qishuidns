@@ -1,0 +1,42 @@
+[
+  {
+    "name": "cdn.openai.com",
+    "ip": "13.107.246.64"
+  },
+  {
+    "name": "openai.com",
+    "ip": "104.18.3.161"
+  },
+  {
+    "name": "googlevideo.com",
+    "server": "192.221.154.0"
+  },
+  {
+    "name": "youtube.com",
+    "server": "192.221.154.0"
+  },
+  {
+    "name": "ytimg.com",
+    "server": "192.221.154.0"
+  },
+  {
+    "name": "googleapis.com",
+    "server": "192.221.154.0"
+  },
+  {
+    "name": "google.com",
+    "server": "192.221.154.0"
+  },
+  {
+    "name": "googleusercontent.com",
+    "server": "192.221.154.0"
+  },
+  {
+    "name": "gtimg.com",
+    "server": "192.221.154.0"
+  },
+  {
+    "name": "akamai-video-content.com",
+    "server": "192.221.154.0"
+  }
+]
