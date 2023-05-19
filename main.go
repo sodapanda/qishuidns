@@ -194,46 +194,24 @@ func handleRequest(w dns.ResponseWriter, req *dns.Msg) {
 	if !isConfigBind {
 		// 判断是否含有A记录的请求
 		foundSupportedType := false
+		isA := false
 		isGFW := false
 		isNotChina := false
 		for _, q := range req.Question {
 			// 判断查询是否为支持的
-			if q.Qtype == dns.TypeA || q.Qtype == dns.TypeAAAA || q.Qtype == dns.TypeMX || q.Qtype == dns.TypeCNAME || q.Qtype == dns.TypeHTTPS || q.Qtype == dns.TypePTR {
+			if q.Qtype == dns.TypeA || q.Qtype == dns.TypeMX || q.Qtype == dns.TypeCNAME || q.Qtype == dns.TypeHTTPS || q.Qtype == dns.TypePTR {
 				foundSupportedType = true
+				if q.Qtype == dns.TypeA {
+					isA = true
+				}
 				isGFW = gfwListTrie.IsSubdomain(reverseDomain(strings.TrimRight(q.Name, ".")))
-				break
 			}
 
 		}
 
 		if foundSupportedType {
-			if isGFW {
-				c := new(dns.Client)
-				var err error
-				res, _, err = c.Exchange(req, forwardServer+":53")
-				if err != nil {
-					log.Printf("Error forwarding request to %s: %v", forwardServer, err)
-					res = createErrorReply(req)
-				}
-			} else {
-				c := new(dns.Client)
-				var err error
-				res, _, err = c.Exchange(req, "223.5.5.5:53")
-				if err != nil {
-					log.Printf("Error forwarding request to 223.5.5.5: %v", err)
-					res = createErrorReply(req)
-				}
-
-				for _, r := range res.Answer {
-					if a, ok := r.(*dns.A); ok {
-						// fmt.Printf("%s A记录 IP地址: %s\n", " ", a.A)
-						if !checkCIDRRange(a.A) {
-							isNotChina = true
-						}
-					}
-				}
-
-				if isNotChina {
+			if isA {
+				if isGFW {
 					c := new(dns.Client)
 					var err error
 					res, _, err = c.Exchange(req, forwardServer+":53")
@@ -241,6 +219,41 @@ func handleRequest(w dns.ResponseWriter, req *dns.Msg) {
 						log.Printf("Error forwarding request to %s: %v", forwardServer, err)
 						res = createErrorReply(req)
 					}
+				} else {
+					c := new(dns.Client)
+					var err error
+					res, _, err = c.Exchange(req, "223.5.5.5:53")
+					if err != nil {
+						log.Printf("Error forwarding request to 223.5.5.5: %v", err)
+						res = createErrorReply(req)
+					}
+
+					for _, r := range res.Answer {
+						if a, ok := r.(*dns.A); ok {
+							// fmt.Printf("%s A记录 IP地址: %s\n", " ", a.A)
+							if !checkCIDRRange(a.A) {
+								isNotChina = true
+							}
+						}
+					}
+
+					if isNotChina {
+						c := new(dns.Client)
+						var err error
+						res, _, err = c.Exchange(req, forwardServer+":53")
+						if err != nil {
+							log.Printf("Error forwarding request to %s: %v", forwardServer, err)
+							res = createErrorReply(req)
+						}
+					}
+				}
+			} else {
+				c := new(dns.Client)
+				var err error
+				res, _, err = c.Exchange(req, forwardServer+":53")
+				if err != nil {
+					log.Printf("Error forwarding request to %s: %v", forwardServer, err)
+					res = createErrorReply(req)
 				}
 			}
 		} else {
