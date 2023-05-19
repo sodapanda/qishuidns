@@ -165,7 +165,7 @@ func handleRequest(w dns.ResponseWriter, req *dns.Msg) {
 	res := &dns.Msg{}
 	res.SetReply(req)
 	isConfigBind := false
-	forwardServer := "8.8.8.8"
+	forwardServer := "52.235.135.129"
 
 	// 判断是不是配置文件里的
 	if req.Question[0].Qtype == dns.TypeA {
@@ -198,7 +198,7 @@ func handleRequest(w dns.ResponseWriter, req *dns.Msg) {
 		isNotChina := false
 		for _, q := range req.Question {
 			// 判断查询是否为支持的
-			if q.Qtype == dns.TypeA || q.Qtype == dns.TypeAAAA || q.Qtype == dns.TypeMX || q.Qtype == dns.TypeCNAME || q.Qtype == dns.TypeHTTPS {
+			if q.Qtype == dns.TypeA || q.Qtype == dns.TypeAAAA || q.Qtype == dns.TypeMX || q.Qtype == dns.TypeCNAME || q.Qtype == dns.TypeHTTPS || q.Qtype == dns.TypePTR {
 				foundSupportedType = true
 				isGFW = gfwListTrie.IsSubdomain(reverseDomain(strings.TrimRight(q.Name, ".")))
 				break
