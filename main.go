@@ -165,7 +165,7 @@ func handleRequest(w dns.ResponseWriter, req *dns.Msg) {
 	res := &dns.Msg{}
 	res.SetReply(req)
 	isConfigBind := false
-	forwardServer := "52.235.135.129"
+	forwardServer := "54.187.61.200"
 
 	// 判断是不是配置文件里的
 	if req.Question[0].Qtype == dns.TypeA {
